@@ -257,59 +257,8 @@ EOF
                 timeout(time: 3, unit: 'HOURS')
             }
             steps {
+                sleep 3000
                 runTest('init-deploy')
-                runTest('limits')
-                runTest('monitoring')
-                runTest('monitoring-2-0')
-                runTest('affinity')
-                runTest('one-pod')
-                runTest('auto-tuning')
-                runTest('proxysql-sidecar-res-limits')
-                runTest('users')
-                runTest('haproxy')
-            }
-        }
-        stage('E2E Scaling') {
-            options {
-                timeout(time: 3, unit: 'HOURS')
-            }
-            steps {
-                runTest('scaling')
-                runTest('scaling-proxysql')
-                runTest('upgrade')
-                runTest('upgrade-consistency')
-                runTest('security-context')
-            }
-        }
-        stage('E2E SelfHealing') {
-            options {
-                timeout(time: 3, unit: 'HOURS')
-            }
-            steps {
-                runTest('storage')
-                runTest('self-healing')
-                runTest('self-healing-advanced')
-                runTest('operator-self-healing')
-            }
-        }
-        stage('E2E Backups') {
-            options {
-                timeout(time: 3, unit: 'HOURS')
-            }
-            steps {
-                runTest('recreate')
-                runTest('restore-to-encrypted-cluster')
-                runTest('demand-backup')
-                runTest('demand-backup-encrypted-with-tls')
-                runTest('scheduled-backup')
-            }
-        }
-        stage('E2E BigData') {
-            options {
-                timeout(time: 3, unit: 'HOURS')
-            }
-            steps {
-                runTest('big-data')
             }
         }
         stage('Make report') {
