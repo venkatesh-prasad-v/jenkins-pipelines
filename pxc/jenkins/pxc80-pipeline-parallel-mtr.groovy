@@ -1,6 +1,6 @@
 PIPELINE_TIMEOUT = 10
-JENKINS_SCRIPTS_BRANCH = 'master'
-JENKINS_SCRIPTS_REPO = 'https://github.com/Percona-Lab/jenkins-pipelines'
+JENKINS_SCRIPTS_BRANCH = 'innovative'
+JENKINS_SCRIPTS_REPO = 'https://github.com/kamil-holubicki/jenkins-pipelines'
 AWS_CREDENTIALS_ID = 'c42456e5-c28d-4962-b32c-b75d161bff27'
 MAX_S3_RETRIES = 12
 S3_ROOT_DIR = 's3://pxc-build-cache'
@@ -82,10 +82,28 @@ void downloadLatestPxbPackage(String PXB_VER, String PACKAGE_NAME, String GLIBC_
     """
 }
 
+void downloadPackage(String PACKAGE_URL, String OUTPUT_FILE_PATH) {
+    // Try do download
+    echo "Downloading package ${PACKAGE_URL}"
+    packageDownloadResult = sh (
+    script: """
+        wget --server-response ${PACKAGE_URL} -O ${OUTPUT_FILE_PATH} 2>&1 | awk '/^  HTTP/{print \$2}'
+        """,
+        returnStdout: true
+    ).trim()
+
+    if (packageDownloadResult != '200') {
+        echo "Unable to download package ${PACKAGE_URL} result: ${packageDownloadResult}"
+    } else {
+        echo "Package ${PACKAGE_URL} downloaded as ${OUTPUT_FILE_PATH}"
+    }
+}
+
 void downloadFilesForTests() {
     sh """
         mkdir -p ./pxc/sources/pxc/results/pxb24
         mkdir -p ./pxc/sources/pxc/results/pxb80
+        mkdir -p ./pxc/sources/pxc/results/pxb_A
     """
     if (PXB24_PACKAGE_TO_DOWNLOAD != '') {
         downloadLatestPxbPackage("2.4", PXB24_PACKAGE_TO_DOWNLOAD, "2.17", "./pxc/sources/pxc/results/pxb24/pxb24.tar.gz")
@@ -97,6 +115,11 @@ void downloadFilesForTests() {
         downloadLatestPxbPackage("8.0", PXB80_PACKAGE_TO_DOWNLOAD, "2.17", "./pxc/sources/pxc/results/pxb80/pxb80.tar.gz")
     } else {
         downloadFileFromS3("${BUILD_TAG_BINARIES}", "pxb80.tar.gz", "./pxc/sources/pxc/results/pxb80/pxb80.tar.gz")
+    }
+
+    echo "PXB_A_URL: ${env.PXB_A_URL}"
+    if (env.PXB_A_URL != '') {
+        downloadPackage(env.PXB_A_URL, "./pxc/sources/pxc/results/pxb_A/pxb_A.tar.gz")
     }
 
     downloadFileFromS3("${BUILD_TAG_BINARIES}", "pxc80.tar.gz", "./pxc/sources/pxc/results/pxc80.tar.gz")
@@ -214,31 +237,45 @@ void build(String SCRIPT) {
 
 void setupTestSuitesSplit() {
     sh """
+      pwd
+      ls -la
+    """
+
+    def split_script = """#!/bin/bash
         if [[ "${FULL_MTR}" == "yes" ]]; then
-            # Try to get suites split from pxc repo. If not present, fallback to hardcoded.
+            # Try to get suites split from PS repo. If not present, fallback to hardcoded.
             RAW_VERSION_LINK=\$(echo \${GIT_REPO%.git} | sed -e "s:github.com:raw.githubusercontent.com:g")
             REPLY=\$(curl -Is \${RAW_VERSION_LINK}/${BRANCH}/mysql-test/suites-groups.sh | head -n 1 | awk '{print \$2}')
+            CUSTOM_SPLIT=0
             if [[ \${REPLY} != 200 ]]; then
-                # Unit tests will be executed by worker 1, so do not assign galera suites, wich are executed
-                # with less parallelism
-                WORKER_1_MTR_SUITES=innodb_undo,test_services,audit_null,service_sys_var_registration,connection_control,data_masking,binlog_57_decryption,service_udf_registration,service_status_var_registration,procfs,interactive_utilities,percona-pam-for-mysql
-                WORKER_2_MTR_SUITES=galera_nbo,galera_3nodes,galera_sr,galera_3nodes_nbo,galera_3nodes_sr,galera_encryption,wsrep
-                WORKER_3_MTR_SUITES=engines/funcs,innodb
-                WORKER_4_MTR_SUITES=main,rpl
-                WORKER_5_MTR_SUITES=rpl_nogtid,rpl_gtid
-                WORKER_6_MTR_SUITES=parts,group_replication,clone,innodb_gis
-                WORKER_7_MTR_SUITES=stress,perfschema,component_keyring_file,binlog,innodb_fts,sys_vars,innodb_zip,x,gcol,engines/iuds,encryption,federated,funcs_1,auth_sec,binlog_nogtid,binlog_gtid,funcs_2,jp,information_schema,rpl_encryption,sysschema,json,opt_trace,audit_log,collations,gis,query_rewrite_plugins,test_service_sql_api,secondary_engine
-                WORKER_8_MTR_SUITES=galera
+                # The given branch does not contain customized suites-groups.sh file. Use default configuration.
+                echo "Using pipeline built-in MTR suites split"
+                cp ./pxc/jenkins/suites-groups.sh ${WORKSPACE}/suites-groups.sh
             else
+                echo "Using custom MTR suites split"
                 wget \${RAW_VERSION_LINK}/${BRANCH}/mysql-test/suites-groups.sh -O ${WORKSPACE}/suites-groups.sh
+                CUSTOM_SPLIT=1
+            fi
+            # Check if split contain all suites
+            wget \${RAW_VERSION_LINK}/${BRANCH}/mysql-test/mysql-test-run.pl -O ${WORKSPACE}/mysql-test-run.pl
+            chmod +x ${WORKSPACE}/suites-groups.sh
+            set +e
+            echo "Check if suites list is consistent with the one specified in mysql-test-run.pl"
+            ${WORKSPACE}/suites-groups.sh check ${WORKSPACE}/mysql-test-run.pl ${CMAKE_BUILD_TYPE}
+            CHECK_RESULT=\$?
+            set -e
+            echo "CHECK_RESULT: \${CHECK_RESULT}"
+            # Fail only if this is built-in split.
+            if [[ \${CUSTOM_SPLIT} -eq 0 ]] && [[ \${CHECK_RESULT} -ne 0 ]]; then
+                echo "Default MTR split is inconsistent. Exiting."
+                exit 1
+            fi
 
-                # Check if splitted suites contain all suites
-                wget \${RAW_VERSION_LINK}/${BRANCH}/mysql-test/mysql-test-run.pl -O ${WORKSPACE}/mysql-test-run.pl
-                chmod +x ${WORKSPACE}/suites-groups.sh
-                ${WORKSPACE}/suites-groups.sh check ${WORKSPACE}/mysql-test-run.pl
-
-                # Source suites split
-                source ${WORKSPACE}/suites-groups.sh
+            # Set suites split definition, that is WORKER_x_MTR_SUITES
+            source ${WORKSPACE}/suites-groups.sh
+            # Call set_suites() function if exists
+            if [[ \$(type -t set_suites) == function ]]; then
+                set_suites ${CMAKE_BUILD_TYPE}
             fi
 
             echo \${WORKER_1_MTR_SUITES} > ${WORKSPACE}/worker_1.suites
@@ -251,6 +288,9 @@ void setupTestSuitesSplit() {
             echo \${WORKER_8_MTR_SUITES} > ${WORKSPACE}/worker_8.suites
         fi
     """
+    def split_script_output = sh(script: split_script, returnStdout: true)
+    echo split_script_output
+
     script {
         if (env.FULL_MTR == 'yes') {
             env.WORKER_1_MTR_SUITES = sh(returnStdout: true, script: "cat ${WORKSPACE}/worker_1.suites").trim()
@@ -403,7 +443,7 @@ void triggerAbortedTestWorkersRerun() {
             echo "rerun needed: $rerunNeeded"
             if (rerunNeeded) {
                 echo "restarting aborted workers"
-                build job: 'pxc-8.0-pipeline-parallel-mtr',
+                build job: 'pxc-8.0-pipeline-parallel-mtr-innovative',
                 wait: false,
                 parameters: [
                     string(name:'BUILD_NUMBER_BINARIES', value: BUILD_NUMBER_BINARIES_FOR_RERUN),
@@ -455,12 +495,12 @@ pipeline {
             name: 'BUILD_NUMBER_BINARIES',
             trim: true)
         string(
-            defaultValue: 'https://github.com/percona/percona-xtradb-cluster',
+            defaultValue: 'https://github.com/kamil-holubicki/percona-xtradb-cluster',
             description: 'URL to PXC repository',
             name: 'GIT_REPO',
             trim: true)
         string(
-            defaultValue: '8.0',
+            defaultValue: 'pxc-8.1.0-merge',
             description: 'Tag/PR/Branch for PXC repository',
             name: 'BRANCH',
             trim: true)
@@ -501,6 +541,16 @@ pipeline {
             description: 'Tag/Branch for PXC repository',
             name: 'PXB24_BRANCH',
             trim: true)
+        string(
+            defaultValue: 'https://downloads.percona.com/downloads/Percona-XtraBackup-innovative-release/Percona-XtraBackup-8.1.0-1/binary/tarball/percona-xtrabackup-8.1.0-1-Linux-x86_64.glibc2.17-minimal.tar.gz',
+            description: 'Additional PXB package URL to be available in pxc_extra/PXB_A_TARGET_DIR',
+            name: 'PXB_A_URL',
+            trim: true)
+        string(
+            defaultValue: 'pxb-8.1',
+            description: 'Additional PXB package downloaded from URL will be available to PXC in pxc_extra/PXB_A_TARGET_DIR',
+            name: 'PXB_A_TARGET_DIR',
+            trim: true)
         choice(
             choices: '/usr/bin/cmake',
             description: 'path to cmake binary',
@@ -510,7 +560,7 @@ pipeline {
             description: 'OS version for compilation',
             name: 'DOCKER_OS')
         choice(
-            choices: 'RelWithDebInfo\nDebug',
+            choices: 'Debug\nRelWithDebInfo',
             description: 'Type of build to produce',
             name: 'CMAKE_BUILD_TYPE')
         string(
@@ -599,6 +649,13 @@ pipeline {
     stages {
         stage('Prepare') {
             steps {
+                script {
+                    echo "JENKINS_SCRIPTS_BRANCH: $JENKINS_SCRIPTS_BRANCH"
+                    echo "JENKINS_SCRIPTS_REPO: $JENKINS_SCRIPTS_REPO"
+                    echo "Using instances with LABEL ${LABEL} for build and test stages"
+                }
+                git branch: JENKINS_SCRIPTS_BRANCH, url: JENKINS_SCRIPTS_REPO
+            
                 script {
                     BUILD_TRIGGER_BY = " (${currentBuild.getBuildCauses()[0].userId})"
                     if (BUILD_TRIGGER_BY == " (null)") {

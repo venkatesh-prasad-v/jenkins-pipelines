@@ -13,6 +13,7 @@
 #      DOCKER_OS
 #      ANALYZER_OPTS = (-DWITH_ASAN=ON -DWITH_ASAN_SCOPE=ON -DWITH_MSAN=ON -DWITH_UBSAN=ON -DWITH_VALGRIND=ON)
 #      CI_FS_MTR
+#      PXB_A_TARGET_DIR
 
 set -o errexit
 set -o xtrace
@@ -57,6 +58,17 @@ mkdir -p ${WORKDIR_ABS}/PXC/bin/pxc_extra/pxb-2.4
 mkdir -p ${WORKDIR_ABS}/PXC/bin/pxc_extra/pxb-8.0
 cp -v -r ${PXB24_WORKDIR}/target/pxb-2.4/{bin,lib} ${WORKDIR_ABS}/PXC/bin/pxc_extra/pxb-2.4
 cp -v -r ${PXB80_WORKDIR}/target/pxb-8.0/{bin,lib} ${WORKDIR_ABS}/PXC/bin/pxc_extra/pxb-8.0
+
+echo "PXB_A_TARGET_DIR: ${PXB_A_TARGET_DIR}"
+if [[ -n "${PXB_A_TARGET_DIR}" ]]; then
+    PXB_A_WORKDIR=$WORKDIR_ABS/pxb_A
+    PXB_A_TAR="pxb_A.tar.gz"
+    mkdir -p ${PXB_A_WORKDIR}/target
+    tar -xzf $PXB_A_WORKDIR/$PXB_A_TAR --exclude='man' --exclude='*-test' -C ${PXB_A_WORKDIR}/target
+    mv ${PXB_A_WORKDIR}/target/$(ls ${PXB_A_WORKDIR}/target | grep percona-xtrabackup-) ${PXB_A_WORKDIR}/target/${PXB_A_TARGET_DIR}
+    mkdir -p ${WORKDIR_ABS}/PXC/bin/pxc_extra/${PXB_A_TARGET_DIR}
+    cp -v -r ${PXB_A_WORKDIR}/target/${PXB_A_TARGET_DIR}/{bin,lib} ${WORKDIR_ABS}/PXC/bin/pxc_extra/${PXB_A_TARGET_DIR}
+fi
 # PXB <<<
 
 #

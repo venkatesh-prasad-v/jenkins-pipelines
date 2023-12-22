@@ -1,5 +1,5 @@
 - job:
-    name: pxc-8.0-pipeline-parallel-mtr
+    name: pxc-8.0-pipeline-parallel-mtr-innovative
     project-type: pipeline
     description: |
         Do not edit this job through the web!
@@ -7,9 +7,9 @@
     pipeline-scm:
       scm:
         - git:
-            url: https://github.com/Percona-Lab/jenkins-pipelines.git
+            url: https://github.com/kamil-holubicki/jenkins-pipelines.git
             branches:
-            - 'master'
+            - 'innovative'
             wipe-workspace: false
       lightweight-checkout: true
       script-path: pxc/jenkins/pxc80-pipeline-parallel-mtr.groovy
@@ -20,11 +20,11 @@
         description: Reuse PXC, PXB24, PXB80 binaries built in the specified build. Useful for quick MTR test rerun without rebuild.
     - string:
         name: GIT_REPO
-        default: "https://github.com/percona/percona-xtradb-cluster"
+        default: "https://github.com/kamil-holubicki/percona-xtradb-cluster"
         description: URL to PXC repository
     - string:
         name: BRANCH
-        default: "8.0"
+        default: "pxc-8.1.0-merge"
         description: Tag/PR/Branch for PXC repository
     - string:
         name: CUSTOM_BUILD_NAME
@@ -58,6 +58,14 @@
         name: PXB24_BRANCH
         default: percona-xtrabackup-2.4.27
         description: Tag/Branch for PXC repository
+    - string:
+        name: PXB_A_URL
+        default: "https://downloads.percona.com/downloads/Percona-XtraBackup-innovative-release/Percona-XtraBackup-8.1.0-1/binary/tarball/percona-xtrabackup-8.1.0-1-Linux-x86_64.glibc2.17-minimal.tar.gz"
+        description: Additional PXB package URL to be available in pxc_extra/PXB_A_TARGET_PATH
+    - string:
+        name: PXB_A_TARGET_DIR
+        default: "pxb-8.1"
+        description: Additional PXB package downloaded from URL will be available to PXC in pxc_extra/PXB_A_TARGET_PATH
     - choice:
         name: JOB_CMAKE
         choices:
